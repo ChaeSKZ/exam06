@@ -14,12 +14,13 @@ typedef struct s_client
 	char				*buf;
 }	t_client;
 
-t_client clients[2000];
-fd_set afd, rfd, wfd;
+t_client *clients;
+fd_set afd, rfd;
 int maxfd = 0;
+int sockfd;
 int next_id = 0;
-char wbuf[2000];
-char rbuf[2000];
+char wbuf[600000];
+char rbuf[600000];
 
 void	fatal()
 {
@@ -31,11 +32,8 @@ void sendAll(int sender)
 {
 	for (int fd = 0; fd <= maxfd; fd++)
 	{
-		if (FD_ISSET(fd, &wfd) && fd != sender)
-		{
-			if (send(fd, wbuf, strlen(wbuf), 0) < 0)
-				fatal();
-		}
+		if (FD_ISSET(fd, &afd) && fd != sender && fd != sockfd)
+			send(fd, wbuf, strlen(wbuf), 0);
 	}
 }
 
@@ -88,7 +86,6 @@ char *str_join(char *buf, char *add)
 
 
 int main(int ac, char **av) {
-	int sockfd;
 	socklen_t len;
 	struct sockaddr_in servaddr;
 
@@ -98,19 +95,18 @@ int main(int ac, char **av) {
 		exit(1);
 	}
 
-	// socket create and verification
 	sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	if (sockfd == -1)
 		fatal();
 	bzero(&servaddr, sizeof(servaddr));
-	bzero(&clients, sizeof(clients));
+	clients = calloc(4000, sizeof(t_client));
+	if (!clients)
+		fatal();
 
-	// assign IP, PORT
 	servaddr.sin_family = AF_INET;
 	servaddr.sin_addr.s_addr = htonl(2130706433); //127.0.0.1
 	servaddr.sin_port = htons(atoi(av[1]));
 
-	// Binding newly created socket to given IP and verification
 	if ((bind(sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr))) != 0)
 		fatal();
 	if (listen(sockfd, 10) != 0)
@@ -121,8 +117,7 @@ int main(int ac, char **av) {
 	while (1)
 	{
 		rfd = afd;
-		wfd = afd;
-		if (select(maxfd + 1, &rfd, &wfd, NULL, NULL) < 0)
+		if (select(maxfd + 1, &rfd, NULL, NULL, NULL) < 0)
 			continue ;
 		for (int fd = 0; fd <= maxfd; fd++)
 		{
@@ -138,12 +133,13 @@ int main(int ac, char **av) {
 				if (clientfd > maxfd)
 					maxfd = clientfd;
 				clients[clientfd].id = next_id++;
+				clients[clientfd].buf = NULL;
 				sprintf(wbuf, "server: client %d just arrived\n", clients[clientfd].id);
 				sendAll(clientfd);
 			}
 			else
 			{
-				int n = recv(fd, rbuf, 2000, 0);
+				int n = recv(fd, rbuf, 200000, 0);
 				if (n <= 0)
 				{
 					FD_CLR(fd, &afd);
